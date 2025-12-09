@@ -12,6 +12,7 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.Spinner;
 import android.widget.TextView;
+import android.text.Editable;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -239,8 +240,51 @@ public class MainActivity extends AppCompatActivity {
                 for(String cat : updatedCategories) {
                     spinnerAdapter.add(cat);
                 }
+                
+                // 设置Spinner选择监听器，当选择类别时在自定义输入框中显示所选类别
+                spinnerCategory.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+                    @Override
+                    public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                        String selectedCategory = parent.getItemAtPosition(position).toString();
+                        if (!selectedCategory.equals("请选择类别")) {
+                            // 当从下拉框选择类别时，自动填入自定义输入框，防止重复输入
+                            etCustomCategory.setText(selectedCategory);
+                            etCustomCategory.setSelection(etCustomCategory.getText().length()); // 光标移到末尾
+                        }
+                    }
+
+                    @Override
+                    public void onNothingSelected(AdapterView<?> parent) {
+                        // 不做任何操作
+                    }
+                });
             });
         }).start();
+        
+        // 设置自定义类别输入框的监听器，当输入内容时自动匹配下拉框中的类别
+        etCustomCategory.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {}
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                String inputText = s.toString();
+                if (!inputText.isEmpty()) {
+                    // 在下拉框中查找匹配的类别
+                    for (int i = 0; i < spinnerAdapter.getCount(); i++) {
+                        String category = spinnerAdapter.getItem(i);
+                        if (category != null && category.equals(inputText)) {
+                            // 如果找到匹配项，自动选中下拉框中的该项
+                            spinnerCategory.setSelection(i);
+                            break;
+                        }
+                    }
+                }
+            }
+        });
 
         builder.setPositiveButton("保存", new DialogInterface.OnClickListener() {
             @Override
