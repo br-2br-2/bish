@@ -55,6 +55,64 @@ public class MainActivity extends AppCompatActivity {
         // 添加按钮点击事件
         findViewById(R.id.btnAdd).setOnClickListener(v -> showAddDialog());
         findViewById(R.id.btnPredict).setOnClickListener(v -> predictExpense());
+        findViewById(R.id.btnExport).setOnClickListener(v -> exportToCsv());
+    }
+
+    private void exportToCsv() {
+        // 使用线程池执行导出任务
+        executor.execute(() -> {
+            try {
+                // 获取所有支出数据
+                List<Expense> expenses = db.expenseDao().getAllExpenses();
+                
+                if (expenses.isEmpty()) {
+                    runOnUiThread(() -> 
+                        Toast.makeText(MainActivity.this, "没有数据可导出", Toast.LENGTH_SHORT).show());
+                    return;
+                }
+
+                // 创建CSV文件
+                File downloadsDir = new File(getExternalFilesDir(null), "CSV");
+                if (!downloadsDir.exists()) {
+                    downloadsDir.mkdirs();
+                }
+                
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.getDefault());
+                String fileName = "expenses_" + sdf.format(new Date()) + ".csv";
+                File csvFile = new File(downloadsDir, fileName);
+
+                // 写入CSV文件
+                try (FileWriter writer = new FileWriter(csvFile);
+                     BufferedWriter bufferedWriter = new BufferedWriter(writer)) {
+                    
+                    // 写入CSV头部
+                    bufferedWriter.write("日期,金额,类别,备注\n");
+                    
+                    // 写入数据行
+                    SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+                    for (Expense expense : expenses) {
+                        String dateStr = dateFormat.format(new Date(expense.date));
+                        // 转义可能包含逗号的字段
+                        String note = expense.note.replace("\"", "\"\"");
+                        String category = expense.category.replace("\"", "\"\"");
+                        
+                        bufferedWriter.write(String.format("\"%s\",\"%.2f\",\"%s\",\"%s\"\n",
+                                dateStr, expense.amount, category, note));
+                    }
+                }
+
+                runOnUiThread(() -> 
+                    Toast.makeText(MainActivity.this, 
+                        "CSV文件已导出至: " + csvFile.getAbsolutePath(), 
+                        Toast.LENGTH_LONG).show());
+                        
+            } catch (IOException e) {
+                e.printStackTrace();
+                runOnUiThread(() -> 
+                    Toast.makeText(MainActivity.this, "导出失败: " + e.getMessage(), 
+                        Toast.LENGTH_LONG).show());
+            }
+        });
     }
 
     /* 2. 预测入口：把任务扔进线程池 */
