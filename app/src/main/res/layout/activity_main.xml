@@ -48,7 +48,7 @@
     <Button
         android:id="@+id/btnPredict"
         style="@style/Widget.App.Button"
-        android:text="预测明日支出"
+        android:text="预测下一天支出"
         app:layout_constraintTop_toBottomOf="@id/guideline"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />

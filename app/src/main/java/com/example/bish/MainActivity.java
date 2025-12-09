@@ -10,7 +10,9 @@ import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.Spinner;
 import android.widget.TextView;
+import android.text.Editable;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -53,6 +55,64 @@ public class MainActivity extends AppCompatActivity {
         // 添加按钮点击事件
         findViewById(R.id.btnAdd).setOnClickListener(v -> showAddDialog());
         findViewById(R.id.btnPredict).setOnClickListener(v -> predictExpense());
+        findViewById(R.id.btnExport).setOnClickListener(v -> exportToCsv());
+    }
+
+    private void exportToCsv() {
+        // 使用线程池执行导出任务
+        executor.execute(() -> {
+            try {
+                // 获取所有支出数据
+                List<Expense> expenses = db.expenseDao().getAllExpenses();
+                
+                if (expenses.isEmpty()) {
+                    runOnUiThread(() -> 
+                        Toast.makeText(MainActivity.this, "没有数据可导出", Toast.LENGTH_SHORT).show());
+                    return;
+                }
+
+                // 创建CSV文件
+                File downloadsDir = new File(getExternalFilesDir(null), "CSV");
+                if (!downloadsDir.exists()) {
+                    downloadsDir.mkdirs();
+                }
+                
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.getDefault());
+                String fileName = "expenses_" + sdf.format(new Date()) + ".csv";
+                File csvFile = new File(downloadsDir, fileName);
+
+                // 写入CSV文件
+                try (FileWriter writer = new FileWriter(csvFile);
+                     BufferedWriter bufferedWriter = new BufferedWriter(writer)) {
+                    
+                    // 写入CSV头部
+                    bufferedWriter.write("日期,金额,类别,备注\n");
+                    
+                    // 写入数据行
+                    SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+                    for (Expense expense : expenses) {
+                        String dateStr = dateFormat.format(new Date(expense.date));
+                        // 转义可能包含逗号的字段
+                        String note = expense.note.replace("\"", "\"\"");
+                        String category = expense.category.replace("\"", "\"\"");
+                        
+                        bufferedWriter.write(String.format("\"%s\",\"%.2f\",\"%s\",\"%s\"\n",
+                                dateStr, expense.amount, category, note));
+                    }
+                }
+
+                runOnUiThread(() -> 
+                    Toast.makeText(MainActivity.this, 
+                        "CSV文件已导出至: " + csvFile.getAbsolutePath(), 
+                        Toast.LENGTH_LONG).show());
+                        
+            } catch (IOException e) {
+                e.printStackTrace();
+                runOnUiThread(() -> 
+                    Toast.makeText(MainActivity.this, "导出失败: " + e.getMessage(), 
+                        Toast.LENGTH_LONG).show());
+            }
+        });
     }
 
     /* 2. 预测入口：把任务扔进线程池 */
@@ -105,7 +165,7 @@ public class MainActivity extends AppCompatActivity {
 
                 /* 2.4 反归一化并展示 */
                 float pred = out[0][0] * scale + min;
-                String result = "LSTM预测明日支出: ¥" + String.format("%.2f", pred);
+                String result = "LSTM预测下一天支出: ¥" + String.format("%.2f", pred);
                 runOnUiThread(() -> tvPrediction.setText(result));
 
             } catch (Exception e) {
@@ -186,9 +246,37 @@ public class MainActivity extends AppCompatActivity {
         etAmount.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
         layout.addView(etAmount);
 
-        EditText etCategory = new EditText(this);
-        etCategory.setHint("类别（如 餐饮）");
-        layout.addView(etCategory);
+        // 创建类别选择相关的控件
+        LinearLayout categoryLayout = new LinearLayout(this);
+        categoryLayout.setOrientation(LinearLayout.HORIZONTAL);
+        categoryLayout.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        // 类别下拉选择框
+        Spinner spinnerCategory = new Spinner(this);
+        spinnerCategory.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+        // 自定义类别输入框
+        EditText etCustomCategory = new EditText(this);
+        etCustomCategory.setHint("自定义类别");
+        etCustomCategory.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+        // 添加预设类别选项 - 先添加默认选项，稍后异步更新
+        List<String> categories = new ArrayList<>();
+        categories.add("请选择类别");
+        
+        ArrayAdapter<String> spinnerAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, categories);
+        spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerCategory.setAdapter(spinnerAdapter);
+
+        categoryLayout.addView(spinnerCategory);
+        categoryLayout.addView(etCustomCategory);
+
+        layout.addView(categoryLayout);
 
         EditText etNote = new EditText(this);
         etNote.setHint("备注（可选）");
@@ -196,11 +284,85 @@ public class MainActivity extends AppCompatActivity {
 
         builder.setView(layout);
 
+        // 异步加载现有类别
+        new Thread(() -> {
+            List<String> existingCategories = db.expenseDao().getAllCategories();
+            
+            runOnUiThread(() -> {
+                // 更新Spinner的选项
+                List<String> updatedCategories = new ArrayList<>();
+                updatedCategories.add("请选择类别");
+                updatedCategories.addAll(existingCategories);
+                
+                spinnerAdapter.clear();
+                for(String cat : updatedCategories) {
+                    spinnerAdapter.add(cat);
+                }
+                
+                // 设置Spinner选择监听器，当选择类别时在自定义输入框中显示所选类别
+                spinnerCategory.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+                    @Override
+                    public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                        String selectedCategory = parent.getItemAtPosition(position).toString();
+                        if (!selectedCategory.equals("请选择类别")) {
+                            // 当从下拉框选择类别时，自动填入自定义输入框，防止重复输入
+                            etCustomCategory.setText(selectedCategory);
+                            etCustomCategory.setSelection(etCustomCategory.getText().length()); // 光标移到末尾
+                        }
+                    }
+
+                    @Override
+                    public void onNothingSelected(AdapterView<?> parent) {
+                        // 不做任何操作
+                    }
+                });
+            });
+        }).start();
+        
+        // 设置自定义类别输入框的监听器，当输入内容时自动匹配下拉框中的类别
+        etCustomCategory.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {}
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                String inputText = s.toString();
+                if (!inputText.isEmpty()) {
+                    // 在下拉框中查找匹配的类别
+                    for (int i = 0; i < spinnerAdapter.getCount(); i++) {
+                        String category = spinnerAdapter.getItem(i);
+                        if (category != null && category.equals(inputText)) {
+                            // 如果找到匹配项，自动选中下拉框中的该项
+                            spinnerCategory.setSelection(i);
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+
         builder.setPositiveButton("保存", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 String amountStr = etAmount.getText().toString().trim();
-                String category = etCategory.getText().toString().trim();
+                
+                // 获取类别：优先使用自定义类别，如果为空则使用下拉选择的类别
+                String customCategory = etCustomCategory.getText().toString().trim();
+                String selectedCategory = spinnerCategory.getSelectedItem() != null ? 
+                    spinnerCategory.getSelectedItem().toString() : "";
+                
+                String category;
+                if (!customCategory.isEmpty()) {
+                    category = customCategory;  // 使用自定义类别
+                } else if (!selectedCategory.equals("请选择类别") && !selectedCategory.isEmpty()) {
+                    category = selectedCategory;  // 使用选择的类别
+                } else {
+                    category = "";  // 如果两者都为空，则为空
+                }
+
                 String note = etNote.getText().toString().trim();
 
                 if (amountStr.isEmpty() || category.isEmpty()) {
