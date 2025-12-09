@@ -17,6 +17,6 @@ public interface ExpenseDao {
     @Query("SELECT * FROM expenses ORDER BY date DESC")
     List<Expense> getAllExpenses();
     
-    @Query("SELECT DISTINCT category FROM expenses WHERE category IS NOT NULL AND category != '' ORDER BY category ASC")
+    @Query("SELECT category FROM expenses WHERE category IS NOT NULL AND category != '' GROUP BY category ORDER BY COUNT(category) DESC")
     List<String> getAllCategories();
 }
