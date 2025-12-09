@@ -2,18 +2,23 @@ package com.example.bish;
 
 import android.app.AlertDialog;
 import android.content.DialogInterface;
+import android.content.Intent;
 import android.content.res.AssetFileDescriptor;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.DatePicker;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
+import android.widget.TimePicker;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.documentfile.provider.DocumentFile;
 import org.tensorflow.lite.Interpreter;
 import java.io.*;
 import java.nio.ByteBuffer;
@@ -53,6 +58,7 @@ public class MainActivity extends AppCompatActivity {
         // 添加按钮点击事件
         findViewById(R.id.btnAdd).setOnClickListener(v -> showAddDialog());
         findViewById(R.id.btnPredict).setOnClickListener(v -> predictExpense());
+        findViewById(R.id.btnExport).setOnClickListener(v -> showExportOptionsDialog());
     }
 
     /* 2. 预测入口：把任务扔进线程池 */
@@ -194,6 +200,26 @@ public class MainActivity extends AppCompatActivity {
         etNote.setHint("备注（可选）");
         layout.addView(etNote);
 
+        // 添加时间选择按钮
+        LinearLayout timeLayout = new LinearLayout(this);
+        timeLayout.setOrientation(LinearLayout.HORIZONTAL);
+        timeLayout.setPadding(0, 10, 0, 0);
+
+        TextView tvTimeLabel = new TextView(this);
+        tvTimeLabel.setText("消费时间:");
+        tvTimeLabel.setPadding(0, 0, 10, 0);
+        timeLayout.addView(tvTimeLabel);
+
+        TextView tvSelectedTime = new TextView(this);
+        SimpleDateFormat sdf = new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault());
+        tvSelectedTime.setText(sdf.format(new Date()));
+        tvSelectedTime.setPadding(10, 0, 10, 0);
+        tvSelectedTime.setBackgroundResource(R.drawable.border_background); // 需要创建一个边框drawable
+        tvSelectedTime.setOnClickListener(v -> showDateTimePicker(tvSelectedTime));
+        timeLayout.addView(tvSelectedTime);
+
+        layout.addView(timeLayout);
+
         builder.setView(layout);
 
         builder.setPositiveButton("保存", new DialogInterface.OnClickListener() {
@@ -215,12 +241,32 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
 
+                    // 解析选择的时间
+                    long selectedTime;
+                    String timeText = tvSelectedTime.getText().toString();
+                    SimpleDateFormat sdf = new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault());
+                    try {
+                        Date parsedDate = sdf.parse(timeText);
+                        if (parsedDate != null) {
+                            // 获取当前年份并设置到解析的日期中
+                            Calendar selectedCal = Calendar.getInstance();
+                            selectedCal.setTime(parsedDate);
+                            Calendar currentCal = Calendar.getInstance();
+                            selectedCal.set(Calendar.YEAR, currentCal.get(Calendar.YEAR));
+                            selectedTime = selectedCal.getTimeInMillis();
+                        } else {
+                            selectedTime = System.currentTimeMillis();
+                        }
+                    } catch (Exception e) {
+                        selectedTime = System.currentTimeMillis(); // 默认使用当前时间
+                    }
+
                     // 保存到数据库
                     Expense e = new Expense();
                     e.amount = amount;
                     e.category = category;
                     e.note = note;
-                    e.date = System.currentTimeMillis();
+                    e.date = selectedTime;
 
                     new Thread(() -> {
                         db.expenseDao().insert(e);
@@ -237,6 +283,58 @@ public class MainActivity extends AppCompatActivity {
         builder.show();
     }
 
+    private void showDateTimePicker(TextView tvSelectedTime) {
+        Calendar calendar = Calendar.getInstance();
+        SimpleDateFormat sdf = new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault());
+
+        // 创建时间选择器对话框
+        AlertDialog.Builder timeBuilder = new AlertDialog.Builder(this);
+        timeBuilder.setTitle("选择消费时间");
+
+        // 创建时间选择布局
+        LinearLayout timePickerLayout = new LinearLayout(this);
+        timePickerLayout.setOrientation(LinearLayout.VERTICAL);
+        timePickerLayout.setPadding(50, 0, 50, 0);
+
+        // 日期选择器
+        DatePicker datePicker = new DatePicker(this);
+        datePicker.init(calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH), null);
+        timePickerLayout.addView(datePicker);
+
+        // 时间选择器
+        TimePicker timePicker = new TimePicker(this);
+        timePicker.setHour(calendar.get(Calendar.HOUR_OF_DAY));
+        timePicker.setMinute(calendar.get(Calendar.MINUTE));
+        timePicker.setOnTimeChangedListener(new TimePicker.OnTimeChangedListener() {
+            @Override
+            public void onTimeChanged(TimePicker view, int hourOfDay, int minute) {
+                // 当时间改变时更新显示
+            }
+        });
+        timePickerLayout.addView(timePicker);
+
+        timeBuilder.setView(timePickerLayout);
+
+        timeBuilder.setPositiveButton("确定", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                int year = datePicker.getYear();
+                int month = datePicker.getMonth();
+                int day = datePicker.getDayOfMonth();
+                int hour = timePicker.getHour();
+                int minute = timePicker.getMinute();
+
+                Calendar selectedCalendar = Calendar.getInstance();
+                selectedCalendar.set(year, month, day, hour, minute);
+
+                tvSelectedTime.setText(sdf.format(selectedCalendar.getTime()));
+            }
+        });
+
+        timeBuilder.setNegativeButton("取消", null);
+        timeBuilder.show();
+    }
+
     private void loadData() {
         new Thread(() -> {
             expenseList = db.expenseDao().getAllExpenses();
@@ -250,5 +348,132 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
         }).start();
+    }
+
+    private void showExportOptionsDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("导出CSV");
+        
+        String[] options = {"选择位置导出", "导出到默认位置"};
+        
+        builder.setItems(options, (dialog, which) -> {
+            if (which == 0) {
+                // 选择位置导出
+                Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("text/csv");
+                intent.putExtra(Intent.EXTRA_TITLE, "expense_data.csv");
+                startActivityForResult(intent, 1001);
+            } else {
+                // 导出到默认位置
+                exportToDefaultLocation();
+            }
+        });
+        
+        builder.show();
+    }
+
+    private void exportToDefaultLocation() {
+        executor.execute(() -> {
+            try {
+                List<Expense> expenses = db.expenseDao().getAllExpenses();
+                
+                // 获取外部存储目录
+                File downloadsDir = new File(getExternalFilesDir(null), "CSV_exports");
+                if (!downloadsDir.exists()) {
+                    downloadsDir.mkdirs();
+                }
+                
+                File csvFile = new File(downloadsDir, "expense_data_" + System.currentTimeMillis() + ".csv");
+                
+                writeCsvToFile(expenses, csvFile);
+                
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "CSV文件已导出到: " + csvFile.getAbsolutePath(), Toast.LENGTH_LONG).show();
+                });
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "导出失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                });
+            }
+        });
+    }
+    
+    private void writeCsvToFile(List<Expense> expenses, File file) throws IOException {
+        try (FileWriter writer = new FileWriter(file);
+             BufferedWriter bufferedWriter = new BufferedWriter(writer)) {
+            
+            // 写入CSV头部
+            bufferedWriter.write("ID,金额,类别,日期时间,备注\n");
+            
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+            
+            // 写入数据行
+            for (Expense expense : expenses) {
+                String dateStr = sdf.format(new Date(expense.date));
+                bufferedWriter.write(String.format(Locale.getDefault(), "%d,%.2f,%s,%s,%s\n",
+                        expense.id, expense.amount, escapeCsvField(expense.category),
+                        dateStr, escapeCsvField(expense.note)));
+            }
+        }
+    }
+    
+    private String escapeCsvField(String field) {
+        if (field == null) return "";
+        // 如果字段包含逗号、引号或换行符，则用双引号包围并转义内部的双引号
+        if (field.contains(",") || field.contains("\"") || field.contains("\n")) {
+            return "\"" + field.replace("\"", "\"\"") + "\"";
+        }
+        return field;
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        
+        if (requestCode == 1001 && resultCode == RESULT_OK && data != null) {
+            Uri uri = data.getData();
+            if (uri != null) {
+                exportToUri(uri);
+            }
+        }
+    }
+    
+    private void exportToUri(Uri uri) {
+        executor.execute(() -> {
+            try {
+                List<Expense> expenses = db.expenseDao().getAllExpenses();
+                
+                try (OutputStream outputStream = getContentResolver().openOutputStream(uri);
+                     OutputStreamWriter writer = new OutputStreamWriter(outputStream);
+                     BufferedWriter bufferedWriter = new BufferedWriter(writer)) {
+                    
+                    // 写入CSV头部
+                    bufferedWriter.write("ID,金额,类别,日期时间,备注\n");
+                    
+                    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+                    
+                    // 写入数据行
+                    for (Expense expense : expenses) {
+                        String dateStr = sdf.format(new Date(expense.date));
+                        bufferedWriter.write(String.format(Locale.getDefault(), "%d,%.2f,%s,%s,%s\n",
+                                expense.id, expense.amount, escapeCsvField(expense.category),
+                                dateStr, escapeCsvField(expense.note)));
+                    }
+                }
+                
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "CSV文件已成功导出", Toast.LENGTH_SHORT).show();
+                });
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "导出失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                });
+            }
+        });
     }
 }
