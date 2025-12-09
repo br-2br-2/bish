@@ -105,7 +105,7 @@ public class MainActivity extends AppCompatActivity {
 
                 /* 2.4 反归一化并展示 */
                 float pred = out[0][0] * scale + min;
-                String result = "LSTM预测明日支出: ¥" + String.format("%.2f", pred);
+                String result = "LSTM预测下一天支出: ¥" + String.format("%.2f", pred);
                 runOnUiThread(() -> tvPrediction.setText(result));
 
             } catch (Exception e) {
