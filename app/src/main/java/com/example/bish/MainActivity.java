@@ -13,6 +13,7 @@ import android.widget.DatePicker;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.TimePicker;
 import android.widget.Toast;
@@ -36,6 +37,11 @@ public class MainActivity extends AppCompatActivity {
 
     private AppDatabase db;
     private TextView tvPrediction;
+    
+    // 预设类别选项
+    private static final String[] PRESET_CATEGORIES = {
+        "餐饮", "交通", "购物", "娱乐", "医疗", "教育", "住房", "通讯", "其他"
+    };
 
     /* 1. 单线程池，生命周期跟随 Activity */
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -192,9 +198,43 @@ public class MainActivity extends AppCompatActivity {
         etAmount.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
         layout.addView(etAmount);
 
-        EditText etCategory = new EditText(this);
-        etCategory.setHint("类别（如 餐饮）");
-        layout.addView(etCategory);
+        // 创建类别选择Spinner
+        Spinner spinnerCategory = new Spinner(this);
+        
+        // 准备类别选项列表，包含预设选项和"自定义"选项
+        List<String> categories = new ArrayList<>();
+        categories.addAll(Arrays.asList(PRESET_CATEGORIES));
+        categories.add("自定义");
+        
+        ArrayAdapter<String> categoryAdapter = new ArrayAdapter<>(this, 
+            android.R.layout.simple_spinner_dropdown_item, categories);
+        spinnerCategory.setAdapter(categoryAdapter);
+        
+        layout.addView(spinnerCategory);
+
+        // 自定义类别输入框，初始时隐藏
+        EditText etCustomCategory = new EditText(this);
+        etCustomCategory.setHint("输入自定义类别");
+        etCustomCategory.setVisibility(View.GONE); // 初始隐藏
+        layout.addView(etCustomCategory);
+
+        // 监听Spinner选择变化
+        spinnerCategory.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                if (position == categories.size() - 1) { // 选择了"自定义"
+                    etCustomCategory.setVisibility(View.VISIBLE);
+                    etCustomCategory.requestFocus();
+                } else { // 选择了预设类别
+                    etCustomCategory.setVisibility(View.GONE);
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                // 不做任何操作
+            }
+        });
 
         EditText etNote = new EditText(this);
         etNote.setHint("备注（可选）");
@@ -226,7 +266,29 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 String amountStr = etAmount.getText().toString().trim();
-                String category = etCategory.getText().toString().trim();
+                
+                String category;
+                int selectedPosition = spinnerCategory.getSelectedItemPosition();
+                
+                if (selectedPosition == categories.size() - 1) { // 选择了"自定义"
+                    category = etCustomCategory.getText().toString().trim();
+                    if (category.isEmpty()) {
+                        Toast.makeText(MainActivity.this, "请输入自定义类别", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    
+                    // 检查自定义类别是否在预设类别中，如果是则自动选择对应的预设项
+                    for (int i = 0; i < PRESET_CATEGORIES.length; i++) {
+                        if (PRESET_CATEGORIES[i].equals(category)) {
+                            spinnerCategory.setSelection(i);
+                            etCustomCategory.setVisibility(View.GONE);
+                            break;
+                        }
+                    }
+                } else { // 选择了预设类别
+                    category = (String) spinnerCategory.getItemAtPosition(selectedPosition);
+                }
+                
                 String note = etNote.getText().toString().trim();
 
                 if (amountStr.isEmpty() || category.isEmpty()) {
