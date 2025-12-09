@@ -10,6 +10,7 @@ import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -186,9 +187,37 @@ public class MainActivity extends AppCompatActivity {
         etAmount.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
         layout.addView(etAmount);
 
-        EditText etCategory = new EditText(this);
-        etCategory.setHint("类别（如 餐饮）");
-        layout.addView(etCategory);
+        // 创建类别选择相关的控件
+        LinearLayout categoryLayout = new LinearLayout(this);
+        categoryLayout.setOrientation(LinearLayout.HORIZONTAL);
+        categoryLayout.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        // 类别下拉选择框
+        Spinner spinnerCategory = new Spinner(this);
+        spinnerCategory.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+        // 自定义类别输入框
+        EditText etCustomCategory = new EditText(this);
+        etCustomCategory.setHint("自定义类别");
+        etCustomCategory.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+        // 添加预设类别选项 - 先添加默认选项，稍后异步更新
+        List<String> categories = new ArrayList<>();
+        categories.add("请选择类别");
+        
+        ArrayAdapter<String> spinnerAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, categories);
+        spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerCategory.setAdapter(spinnerAdapter);
+
+        categoryLayout.addView(spinnerCategory);
+        categoryLayout.addView(etCustomCategory);
+
+        layout.addView(categoryLayout);
 
         EditText etNote = new EditText(this);
         etNote.setHint("备注（可选）");
@@ -196,11 +225,42 @@ public class MainActivity extends AppCompatActivity {
 
         builder.setView(layout);
 
+        // 异步加载现有类别
+        new Thread(() -> {
+            List<String> existingCategories = db.expenseDao().getAllCategories();
+            
+            runOnUiThread(() -> {
+                // 更新Spinner的选项
+                List<String> updatedCategories = new ArrayList<>();
+                updatedCategories.add("请选择类别");
+                updatedCategories.addAll(existingCategories);
+                
+                spinnerAdapter.clear();
+                for(String cat : updatedCategories) {
+                    spinnerAdapter.add(cat);
+                }
+            });
+        }).start();
+
         builder.setPositiveButton("保存", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 String amountStr = etAmount.getText().toString().trim();
-                String category = etCategory.getText().toString().trim();
+                
+                // 获取类别：优先使用自定义类别，如果为空则使用下拉选择的类别
+                String customCategory = etCustomCategory.getText().toString().trim();
+                String selectedCategory = spinnerCategory.getSelectedItem() != null ? 
+                    spinnerCategory.getSelectedItem().toString() : "";
+                
+                String category;
+                if (!customCategory.isEmpty()) {
+                    category = customCategory;  // 使用自定义类别
+                } else if (!selectedCategory.equals("请选择类别") && !selectedCategory.isEmpty()) {
+                    category = selectedCategory;  // 使用选择的类别
+                } else {
+                    category = "";  // 如果两者都为空，则为空
+                }
+
                 String note = etNote.getText().toString().trim();
 
                 if (amountStr.isEmpty() || category.isEmpty()) {
