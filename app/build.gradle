@@ -44,6 +44,8 @@ dependencies {
 
 
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    // MPAndroidChart 图表库
+    implementation 'com.github.PhilJay:MPAndroidChart:v3.1.0'
     implementation 'com.google.android.material:material:1.11.0'
 
     testImplementation 'junit:junit:4.13.2'
